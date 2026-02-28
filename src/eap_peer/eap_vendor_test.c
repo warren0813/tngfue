@@ -1699,11 +1699,19 @@ static struct wpabuf * eap_vendor_test_build_deregistration_request(
 	/* 3. Message Type: Deregistration Request (UE-originating) */
 	wpabuf_put_u8(resp_nas_pdu, MsgTypeDeregistrationRequestUEOriginatingDeregistration);
 
-	/* 4. Deregistration type (bits 2-0) + ngKSI (bits 7-5)
-	 *    Deregistration type: 001 = Normal deregistration
-	 *    Switch off: bit 3 = 0 (not switching off)
-	 */
-	u8 dereg_type_and_ngksi = (ngksi << 5) | DEREG_TYPE_NORMAL;
+	/* 4. Deregistration type (bits 0-3) + ngKSI (bits 4-7)
+     * Map: [ ngKSI (4b) | AccessType (1b) | Val (3b? No, see below) ]
+     * TS 24.501 9.11.3.20:
+     * Bit 3: Access Type (1 = Non-3GPP)
+     * Bit 0-2: Value (001 = Normal)
+     * Total Low Nibble Value: 0101 (binary) = 0x05
+     */
+     
+    // Set Access Type to Non-3GPP (Bit 3 set -> +4)
+    // Set Type to Normal (Bit 0 set -> +1) 
+    u8 access_and_type = 0x05;
+
+	u8 dereg_type_and_ngksi = (ngksi << 4) | access_and_type;
 	wpabuf_put_u8(resp_nas_pdu, dereg_type_and_ngksi);
 
 	/* 5. 5G mobile identity (LV-E format)
@@ -2056,6 +2064,7 @@ int eap_peer_vendor_test_register(void)
 	eap->getKey = eap_vendor_test_getKey;
 #ifdef EAP_VENDOR_TEST
 	eap->ikev2_conn = eap_vendor_test_ikev2_conn;
+	eap->deregister = eap_vendor_test_initiate_deregistration; // Deregistration function
 #endif
 
 	return eap_peer_method_register(eap);
