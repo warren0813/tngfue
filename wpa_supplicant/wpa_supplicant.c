@@ -1082,14 +1082,16 @@ void wpa_supplicant_terminate_proc(struct wpa_global *global)
 	int pending = 0;
 
 #ifdef EAP_VENDOR_TEST
-    /* Perform UE deregistration before termination */
-    struct wpa_supplicant *wpa_s = global->ifaces;
-    while (wpa_s) {
-        if (wpa_s->wpa) {
-            wpa_printf(MSG_INFO, "Initiating UE deregistration before exit...");
-            wpa_supplicant_deregister(wpa_s->wpa);
+    {
+        /* Perform UE deregistration before termination */
+        struct wpa_supplicant *wpa_s = global->ifaces;
+        while (wpa_s) {
+            if (wpa_s->wpa) {
+                wpa_printf(MSG_INFO, "Initiating UE deregistration before exit...");
+                wpa_supplicant_deregister(wpa_s->wpa);
+            }
+            wpa_s = wpa_s->next;
         }
-        wpa_s = wpa_s->next;
     }
 #endif
 
@@ -1111,12 +1113,6 @@ void wpa_supplicant_terminate_proc(struct wpa_global *global)
 		return;
 	eloop_terminate();
 }
-
-// Current Terminate Handler
-/*
-TODO:
-Triggers TNGFUE Deregister function before terminating wpa_supplicant
-*/ 
 
 static void wpa_supplicant_terminate(int sig, void *signal_ctx)
 {
