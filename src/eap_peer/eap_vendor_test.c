@@ -902,15 +902,19 @@ static struct wpabuf * eap_vendor_test_process_5gnas_smc(u8 id, const struct wpa
 		integrity = true;
 		cipher = true;
 		break;
-	case 3: //
+	case 3: // integrity protected with new 5G NAS security context
 		integrity = true;
+		for (int i = 0; i < 4; i++)
+			data->nas_uplink_cnt[i] = 0;
+		cnt_set(data->uplink_cnt, 0, 0);
 		cnt_set(data->downlink_cnt, 0, 0);
 		break;
-	case 4:
+	case 4: // integrity protected and ciphered with new 5G NAS security context
 		integrity = true;
 		cipher = true;
 		for (int i = 0; i < 4; i++)
 			data->nas_uplink_cnt[i] = 0;
+		cnt_set(data->uplink_cnt, 0, 0);
 		cnt_set(data->downlink_cnt, 0, 0);
 		break;
 	default:
@@ -1699,17 +1703,19 @@ static struct wpabuf * eap_vendor_test_build_deregistration_request(
 	/* 3. Message Type: Deregistration Request (UE-originating) */
 	wpabuf_put_u8(resp_nas_pdu, MsgTypeDeregistrationRequestUEOriginatingDeregistration);
 
-	/* 4. Deregistration type (bits 0-3) + ngKSI (bits 4-7)
-     * Map: [ ngKSI (4b) | AccessType (1b) | Val (3b? No, see below) ]
-     * TS 24.501 9.11.3.20:
-     * Bit 3: Access Type (1 = Non-3GPP)
-     * Bit 0-2: Value (001 = Normal)
-     * Total Low Nibble Value: 0101 (binary) = 0x05
-     */
-     
-    // Set Access Type to Non-3GPP (Bit 3 set -> +4)
-    // Set Type to Normal (Bit 0 set -> +1) 
-    u8 access_and_type = 0x05;
+	/* 4. NgKSI (bits 7-4) + Deregistration type (bits 3-0)
+	 * Per TS 24.501 Section 9.11.3.20:
+	 *   bits 7 (TSC) + bits 6-4 (ngKSI): packed in high nibble via (ngksi << 4)
+	 *   bit 3: Switch off   (0 = normal deregistration, 1 = switch off)
+	 *   bit 2: Re-registration required (0 = not required)
+	 *   bits 1-0: Access type
+	 *             01 = 3GPP access
+	 *             10 = Non-3GPP access
+	 *             11 = 3GPP and Non-3GPP access
+	 *
+	 * For Non-3GPP normal deregistration: bits 1-0 = 10 = 0x02
+	 */
+	u8 access_and_type = 0x02; /* Non-3GPP access (bits 1-0 = 0b10), no switch-off, no re-reg */
 
 	u8 dereg_type_and_ngksi = (ngksi << 4) | access_and_type;
 	wpabuf_put_u8(resp_nas_pdu, dereg_type_and_ngksi);
@@ -1747,7 +1753,7 @@ static int eap_vendor_test_send_deregistration(struct eap_sm *sm,
 
 	wpa_printf(MSG_INFO, "====== UE Initiated Deregistration ======");
 
-	/* Build Deregistration Request */
+	/* Build Deregistration Request (inner plain NAS message) */
 	dereg_req = eap_vendor_test_build_deregistration_request(data, ngksi, guti, guti_len);
 	if (!dereg_req) {
 		wpa_printf(MSG_ERROR, "Failed to build Deregistration Request");
@@ -1761,28 +1767,26 @@ static int eap_vendor_test_send_deregistration(struct eap_sm *sm,
 		return -1;
 	}
 
-	/* Wrap NAS message in NAS message envelope per TS 24.502 Section 9.4:
-	 * NAS message envelope = [2-byte Length] | [NAS Message]
+	/* Wrap with NAS security (integrity + ciphering) per TS 24.501.
+	 * After registration, the UE has an established security context, so the
+	 * AMF requires SecurityHeaderTypeIntegrityProtectedAndCiphered (0x02).
+	 * BuildSecureNAS also adds the 2-byte length prefix per TS 24.502 Section 9.4.
 	 */
-	struct wpabuf *envelope = wpabuf_alloc(2 + wpabuf_len(dereg_req));
-	if (!envelope) {
-		wpa_printf(MSG_ERROR, "Failed to allocate NAS envelope buffer");
-		wpabuf_free(dereg_req);
+	struct wpabuf *secured = BuildSecureNAS(SecurityHeaderTypeIntegrityProtectedAndCiphered, dereg_req, data);
+	if (!secured) {
+		wpa_printf(MSG_ERROR, "Failed to build secured Deregistration Request");
 		return -1;
 	}
-	wpabuf_put_be16(envelope, (u16) wpabuf_len(dereg_req));
-	wpabuf_put_buf(envelope, dereg_req);
-	wpabuf_free(dereg_req);
 
-	bytes_sent = send(data->s_tcp, wpabuf_head(envelope), wpabuf_len(envelope), 0);
+	bytes_sent = send(data->s_tcp, wpabuf_head(secured), wpabuf_len(secured), 0);
 	if (bytes_sent < 0) {
 		wpa_printf(MSG_ERROR, "Failed to send Deregistration Request: %s", strerror(errno));
-		wpabuf_free(envelope);
+		wpabuf_free(secured);
 		return -1;
 	}
 
 	wpa_printf(MSG_INFO, "Deregistration Request sent successfully (%d bytes)", bytes_sent);
-	wpabuf_free(envelope);
+	wpabuf_free(secured);
 
 	return 0;
 }
