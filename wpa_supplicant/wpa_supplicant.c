@@ -1083,14 +1083,18 @@ void wpa_supplicant_terminate_proc(struct wpa_global *global)
 
 #ifdef EAP_VENDOR_TEST
     {
-        /* Perform UE deregistration before termination */
-        struct wpa_supplicant *wpa_s = global->ifaces;
-        while (wpa_s) {
-            if (wpa_s->wpa) {
-                wpa_printf(MSG_INFO, "Initiating UE deregistration before exit...");
-                wpa_supplicant_deregister(wpa_s->wpa);
+        static int deregistered = 0;
+        if (!deregistered) {
+            deregistered = 1;
+            /* Perform UE deregistration before termination */
+            struct wpa_supplicant *wpa_s = global->ifaces;
+            while (wpa_s) {
+                if (wpa_s->wpa) {
+                    wpa_printf(MSG_INFO, "Initiating UE deregistration before exit...");
+                    wpa_supplicant_deregister(wpa_s->wpa);
+                }
+                wpa_s = wpa_s->next;
             }
-            wpa_s = wpa_s->next;
         }
     }
 #endif
