@@ -1751,8 +1751,6 @@ static int eap_vendor_test_send_deregistration(struct eap_sm *sm,
 	struct wpabuf *dereg_req;
 	int bytes_sent;
 
-	wpa_printf(MSG_INFO, "====== UE Initiated Deregistration ======");
-
 	/* Build Deregistration Request (inner plain NAS message) */
 	dereg_req = eap_vendor_test_build_deregistration_request(data, ngksi, guti, guti_len);
 	if (!dereg_req) {
@@ -1818,9 +1816,11 @@ static int eap_vendor_test_handle_ike_delete(struct eap_sm *sm,
 		return -1;
 	}
 
-	/* Receive IKE DELETE request */
-	actual_size = recvfrom(data->s, buf, BUF_SIZE, MSG_WAITALL, 
-			       (struct sockaddr *)&data->sin_tngf, (socklen_t *)&sin_size);
+	/* Receive IKE DELETE request (retry on EINTR from signal interruption) */
+	do {
+		actual_size = recvfrom(data->s, buf, BUF_SIZE, MSG_WAITALL,
+				       (struct sockaddr *)&data->sin_tngf, (socklen_t *)&sin_size);
+	} while (actual_size < 0 && errno == EINTR);
 	if (actual_size < 0) {
 		wpa_printf(MSG_ERROR, "Failed to receive IKE message from TNGF: %s", strerror(errno));
 		return -1;
