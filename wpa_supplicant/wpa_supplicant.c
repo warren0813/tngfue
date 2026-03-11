@@ -1098,7 +1098,6 @@ void wpa_supplicant_terminate_proc(struct wpa_global *global)
         }
     }
 #endif
-
 #ifdef CONFIG_WPS
 	struct wpa_supplicant *wpa_s = global->ifaces;
 	while (wpa_s) {
